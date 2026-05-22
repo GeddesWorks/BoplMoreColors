@@ -1,0 +1,10 @@
+{
+    "name": "BoplMoreColors",
+    "version_number": "0.1.0",
+    "website_url": "https://github.com/GeddesWorks/BoplMoreColors",
+    "description": "Adds extra team colors so 5-8 players can each have a unique color. Companion to FixedMoreBopl.",
+    "dependencies": [
+        "BepInEx-BepInExPack-5.4.2100",
+        "geddesworks-FixedMoreBopl-0.1.0"
+    ]
+}
