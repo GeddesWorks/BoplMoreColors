@@ -12,7 +12,7 @@ namespace BoplMoreColors;
 public sealed class Plugin : BaseUnityPlugin
 {
     public const string PluginGuid = "com.geddesworks.boplmorecolors";
-    public const string PluginName = "BoplMoreColors";
+    public const string PluginName = "MoreTeams";
     public const string PluginVersion = "0.1.0";
 
     internal static Plugin Instance { get; private set; } = null!;

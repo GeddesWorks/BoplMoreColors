@@ -4,16 +4,17 @@ using UnityEngine;
 namespace BoplMoreColors.Patches;
 
 /// <summary>
-/// Expands the game's PlayerColors palette with additional colors so each of 8 players
-/// can have a unique team color. Patches CharacterSelectHandler.Awake (postfix) to inject
-/// new PlayerColor entries after the vanilla ones are loaded.
+/// Expands the game's TeamColors palette so each of 8 players can have a unique team.
+/// Patches CharacterSelectHandler.Awake (postfix) to inject new TeamColor entries.
+///
+/// TeamSelector cycles through TeamColors.teamColors.Length and sets PlayerInit.team.
+/// The vanilla game already has enough PlayerColors (slime materials), so we only
+/// expand TeamColors (fill/border/saturated UI colors for team identity).
 /// </summary>
 [HarmonyPatch(typeof(CharacterSelectHandler), "Awake")]
 internal static class ColorExpansionPatch
 {
-    // Extra colors chosen to be visually distinct from vanilla palette.
-    // Vanilla typically has: blue, red, green, yellow, purple, grey/dark (~6-8).
-    // These fill the gaps with hues the vanilla palette doesn't cover.
+    // Extra colors chosen to be visually distinct from the vanilla palette.
     private static readonly ExtraColorDef[] ExtraColors = new[]
     {
         new ExtraColorDef("Orange",    new Color(1.00f, 0.55f, 0.05f)),
@@ -39,134 +40,111 @@ internal static class ColorExpansionPatch
             return;
         }
 
-        var playerColorsObj = Traverse.Create(__instance).Field<PlayerColors>("playerColors").Value;
-        if (playerColorsObj == null)
-        {
-            Plugin.Log.LogWarning("playerColors field is null on CharacterSelectHandler.");
-            return;
-        }
-
-        var existingColors = playerColorsObj.playerColors;
-        if (existingColors == null || existingColors.Length == 0)
-        {
-            Plugin.Log.LogWarning("playerColors.playerColors array is null/empty.");
-            return;
-        }
-
         // Clamp to available definitions
         var toAdd = Mathf.Min(extraCount, ExtraColors.Length);
 
-        Plugin.LogDiag($"Vanilla palette has {existingColors.Length} colors. Adding {toAdd} extras.");
+        ExpandTeamColors(__instance, toAdd);
+    }
 
-        // Clone a template material from the first existing color
-        var templatePlayerMat = existingColors[0].playerMaterial;
-        var templateUiMat = existingColors[0].uiMaterial;
-
-        if (templatePlayerMat == null)
+    /// <summary>
+    /// Expands the TeamColors ScriptableObject used by TeamSelector to determine
+    /// how many teams are available and their UI fill/border/saturated colors.
+    /// This is the primary thing that controls how many distinct teams players can pick.
+    /// Since TeamColors is a ScriptableObject, all references across the game
+    /// (GameSessionHandler, AbilitySelectCircle, etc.) share the same instance —
+    /// expanding it once covers all consumers.
+    /// </summary>
+    private static void ExpandTeamColors(CharacterSelectHandler handler, int toAdd)
+    {
+        // Find TeamColors via any TeamSelector component on the character select boxes
+        var boxes = Traverse.Create(handler).Field<CharacterSelectBox[]>("characterSelectBoxes").Value;
+        if (boxes == null || boxes.Length == 0)
         {
-            Plugin.Log.LogWarning("Template playerMaterial is null — cannot create extra colors.");
+            Plugin.Log.LogWarning("characterSelectBoxes is null/empty — cannot expand TeamColors.");
             return;
         }
 
-        // Build expanded array
-        var expanded = new PlayerColor[existingColors.Length + toAdd];
-        System.Array.Copy(existingColors, expanded, existingColors.Length);
+        TeamColors? teamColorsObj = null;
+        foreach (var box in boxes)
+        {
+            if (box == null) continue;
+            var selector = box.GetComponentInChildren<TeamSelector>(includeInactive: true);
+            if (selector != null && selector.teams != null)
+            {
+                teamColorsObj = selector.teams;
+                break;
+            }
+        }
+
+        if (teamColorsObj == null)
+        {
+            Plugin.Log.LogWarning("Could not find TeamColors via TeamSelector — cannot expand teams.");
+            return;
+        }
+
+        var existing = teamColorsObj.teamColors;
+        if (existing == null || existing.Length == 0)
+        {
+            Plugin.Log.LogWarning("TeamColors.teamColors array is null/empty.");
+            return;
+        }
+
+        Plugin.LogDiag($"Vanilla TeamColors has {existing.Length} teams. Adding {toAdd} extras.");
+
+        var expanded = new TeamColor[existing.Length + toAdd];
+        System.Array.Copy(existing, expanded, existing.Length);
 
         for (var i = 0; i < toAdd; i++)
         {
             var def = ExtraColors[i];
-            var newIndex = existingColors.Length + i;
+            var newIndex = existing.Length + i;
 
-            // Clone player material and set color
-            var playerMat = new Material(templatePlayerMat);
-            playerMat.name = $"PlayerMat_{def.Name}";
-            SetMaterialColor(playerMat, def.Color);
+            // Generate fill, border, and saturated variants from the base color
+            var fill = def.Color;
+            var border = DarkenColor(def.Color, 0.5f);
+            var saturated = SaturateColor(def.Color, 1.3f);
 
-            // Clone UI material and set color
-            Material? uiMat = null;
-            if (templateUiMat != null)
+            expanded[newIndex] = new TeamColor
             {
-                uiMat = new Material(templateUiMat);
-                uiMat.name = $"UiMat_{def.Name}";
-                SetMaterialColor(uiMat, def.Color);
-            }
-
-            expanded[newIndex] = new PlayerColor
-            {
-                colorIndex = newIndex,
-                playerMaterial = playerMat,
-                uiMaterial = uiMat!,
+                team = newIndex,
+                fill = fill,
+                border = border,
+                saturated = saturated,
             };
 
-            Plugin.LogDiag($"  [{newIndex}] {def.Name} = ({def.Color.r:F2}, {def.Color.g:F2}, {def.Color.b:F2})");
+            Plugin.LogDiag($"  Team[{newIndex}] {def.Name}: fill=({fill.r:F2},{fill.g:F2},{fill.b:F2}) border=({border.r:F2},{border.g:F2},{border.b:F2})");
         }
 
-        // Write expanded array back to the ScriptableObject
-        playerColorsObj.playerColors = expanded;
+        // Write back — since it's a ScriptableObject, all references update automatically
+        teamColorsObj.teamColors = expanded;
 
-        Plugin.LogDiag($"PlayerColors expanded to {playerColorsObj.Length} entries.");
-
-        // Update every SelectColor component so the color picker sees the full palette
-        UpdateSelectColorReferences(__instance, playerColorsObj);
+        Plugin.LogDiag($"TeamColors expanded to {teamColorsObj.Length} entries.");
     }
 
     /// <summary>
-    /// Sets the color on a material. Tries common shader property names that Unity/Bopl Battle uses.
+    /// Darkens a color by multiplying RGB channels, keeping alpha at 1.
+    /// Used to generate border colors from fill colors.
     /// </summary>
-    private static void SetMaterialColor(Material mat, Color color)
+    private static Color DarkenColor(Color c, float factor)
     {
-        // Try the standard Unity color property first
-        if (mat.HasProperty("_Color"))
-        {
-            mat.color = color;
-            return;
-        }
-
-        // Try other common property names
-        string[] candidates = { "_BaseColor", "_TintColor", "_MainColor", "_PlayerColor" };
-        foreach (var prop in candidates)
-        {
-            if (mat.HasProperty(prop))
-            {
-                mat.SetColor(prop, color);
-                return;
-            }
-        }
-
-        // Fallback: set .color anyway (works for most shaders even without _Color declared)
-        mat.color = color;
-        Plugin.LogDiag($"  Material '{mat.name}' has no known color property — used fallback .color setter.");
+        return new Color(
+            Mathf.Clamp01(c.r * factor),
+            Mathf.Clamp01(c.g * factor),
+            Mathf.Clamp01(c.b * factor),
+            1f);
     }
 
     /// <summary>
-    /// Finds all SelectColor components across character select boxes and updates their
-    /// playerColors reference so the color picker cycles through the expanded palette.
+    /// Boosts saturation of a color. Used for the "saturated" variant of team colors.
     /// </summary>
-    private static void UpdateSelectColorReferences(CharacterSelectHandler handler, PlayerColors playerColorsObj)
+    private static Color SaturateColor(Color c, float factor)
     {
-        var boxes = Traverse.Create(handler).Field<CharacterSelectBox[]>("characterSelectBoxes").Value;
-        if (boxes == null)
-        {
-            return;
-        }
-
-        var updated = 0;
-        foreach (var box in boxes)
-        {
-            if (box == null)
-            {
-                continue;
-            }
-
-            var selectColors = box.GetComponentsInChildren<SelectColor>(includeInactive: true);
-            foreach (var sc in selectColors)
-            {
-                sc.playerColors = playerColorsObj;
-                updated++;
-            }
-        }
-
-        Plugin.LogDiag($"Updated {updated} SelectColor component(s) with expanded palette.");
+        Color.RGBToHSV(c, out var h, out var s, out var v);
+        s = Mathf.Clamp01(s * factor);
+        v = Mathf.Clamp01(v * 1.1f);
+        var result = Color.HSVToRGB(h, s, v);
+        result.a = 1f;
+        return result;
     }
 
     private readonly struct ExtraColorDef

@@ -4,7 +4,7 @@
     <AssemblyName>BoplMoreColors</AssemblyName>
     <RootNamespace>BoplMoreColors</RootNamespace>
     <Description>Adds extra team colors to Bopl Battle so 5-8 players can each have a unique color.</Description>
-    <Version>0.1.0</Version>
+    <Version>0.1.4</Version>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
@@ -15,7 +15,7 @@
     <BoplBattleManagedDir Condition="'$(BoplBattleManagedDir)' == '' and '$(BoplBattleRootDir)' != '' and Exists('$(BoplBattleRootDir)\\BoplBattle_Data\\Managed')">$(BoplBattleRootDir)\BoplBattle_Data\Managed</BoplBattleManagedDir>
     <BoplBattleManagedDir Condition="'$(BoplBattleManagedDir)' == '' and '$(BoplBattleRootDir)' != '' and Exists('$(BoplBattleRootDir)\\Bopl_Data\\Managed')">$(BoplBattleRootDir)\Bopl_Data\Managed</BoplBattleManagedDir>
     <BepInExCoreDir Condition="'$(BepInExCoreDir)' == '' and '$(BoplProfileDir)' != ''">$(BoplProfileDir)\BepInEx\core</BepInExCoreDir>
-    <DeployDir Condition="'$(DeployDir)' == '' and '$(BoplProfileDir)' != ''">$(BoplProfileDir)\BepInEx\plugins\BoplMoreColors</DeployDir>
+    <DeployDir Condition="'$(DeployDir)' == ''">$(MSBuildProjectDirectory)\thunderstore</DeployDir>
   </PropertyGroup>
   <Target Name="ValidateReferences" BeforeTargets="ResolveReferences">
     <Error Condition="'$(BoplBattleManagedDir)' == ''" Text="Set BOPL_BATTLE_ROOT or pass -p:BoplBattleRootDir=... before building." />
@@ -53,16 +53,21 @@
       <HintPath>$(BoplBattleManagedDir)\UnityEngine.UIModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
+    <Reference Include="Unity.InputSystem">
+      <HintPath>$(BoplBattleManagedDir)\Unity.InputSystem.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
   </ItemGroup>
-  <Target Name="DeployToProfile" AfterTargets="Build" Condition="'$(DeployDir)' != ''">
+  <Target Name="DeployToThunderstore" AfterTargets="Build" Condition="'$(DeployDir)' != ''">
     <MakeDir Directories="$(DeployDir)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFiles="$(DeployDir)\$(AssemblyName).dll" OverWriteReadOnlyFiles="true" SkipUnchangedFiles="false" />
+    <Message Importance="high" Text="Deployed DLL to $(DeployDir)\$(AssemblyName).dll" />
   </Target>
   <!-- Pack a Thunderstore-ready zip: dotnet build -t:PackThunderstore -->
   <PropertyGroup>
     <ThunderstoreDir>$(MSBuildProjectDirectory)\thunderstore</ThunderstoreDir>
     <ThunderstoreStagingDir>$(IntermediateOutputPath)thunderstore_staging</ThunderstoreStagingDir>
-    <ThunderstoreZip>$(MSBuildProjectDirectory)\thunderstore\BoplMoreColors-$(Version).zip</ThunderstoreZip>
+    <ThunderstoreZip>$(MSBuildProjectDirectory)\thunderstore\MoreTeams-$(Version).zip</ThunderstoreZip>
   </PropertyGroup>
   <Target Name="PackThunderstore" DependsOnTargets="Build">
     <MakeDir Directories="$(ThunderstoreStagingDir)" />
